@@ -136,8 +136,8 @@ p_os$plot <- p_os$plot + theme(panel.grid = element_blank(),
   annotate("text", label="P", x=39, y=0.85,size=5, fontface="bold")+
   annotate("text", label=paste0("MUT(",num[1,2],")"), x=23, y=0.80,size=5, fontface="bold")+
   annotate("text", label=paste0("WT(",num[2,2],")"), x=23, y=0.75,size=5, fontface="bold")+
-  annotate("text", label=round(median_pfs[1,2],1), x=27, y=0.80,size=5, fontface="bold")+
-  annotate("text", label=round(median_pfs[2,2],1), x=27, y=0.75,size=5, fontface="bold")+
+  annotate("text", label=round(median_os[1,2],1), x=27, y=0.80,size=5, fontface="bold")+
+  annotate("text", label=round(median_os[2,2],1), x=27, y=0.75,size=5, fontface="bold")+
   annotate("text", label=round(hr_os,2), x=30, y=0.80,size=5, fontface="bold")+
   annotate("text", label=paste0(round(ci_lower_os,2),"-",round(ci_upper_os,2)), x=35, y=0.80,size=5, fontface="bold")+
   annotate("text", label=round(p_value_os,3), x=39, y=0.80,size=5, fontface="bold")
