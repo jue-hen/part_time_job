@@ -130,7 +130,7 @@ p_os$plot <- p_os$plot + theme(panel.grid = element_blank(),
                                  axis.text = element_text(size = 10, face = 'bold'),
                                  plot.title = element_text(size = 15, face = "bold"),
                                  plot.margin = margin(1, 1, 0, 1, unit = "cm"))+
-  annotate("text", label="mPFS", x=27, y=0.85,size=5, fontface="bold")+
+  annotate("text", label="mOS", x=27, y=0.85,size=5, fontface="bold")+
   annotate("text", label="HR", x=30, y=0.85,size=5, fontface="bold")+
   annotate("text", label="95%", x=35, y=0.85,size=5, fontface="bold")+
   annotate("text", label="P", x=39, y=0.85,size=5, fontface="bold")+
