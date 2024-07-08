@@ -15,7 +15,7 @@ for (i in target_gene){
 #i="APC"
 tmp <- paste(cli$报告编号,i)
 cli[,i] <- ifelse(tmp %in% gene$tt,1,0)
-cli[,i] <- factor(cli[,i], levels = c(1,0))
+cli[,i] <- factor(cli[,i], levels = c(0,1))
 
 surv_object_pfs <- Surv(time=cli$pfs_month, event = cli$pfs_status)
 ###cox 比例风险模型
@@ -201,3 +201,56 @@ for (j in c(1:length(target_gene))){
   median_os <- surv_median(fit_os)
  }
 write.table(dat, "./test_tak/gene_p_value.csv", quote = F, row.names = F, sep = ",")
+
+###extract p 值
+dat <- matrix(nrow = 196, ncol = 3)
+dat <- as.data.frame(dat)
+colnames(dat) <- c("gene","p_pfs","p_os")
+
+for (j in c(1:length(target_gene))){
+  i=target_gene[j]
+  dat[j,1] <- i
+  
+  tmp <- paste(cli$报告编号,i)
+  cli[,i] <- ifelse(tmp %in% gene$tt,1,0)
+  cli[,i] <- factor(cli[,i], levels = c(1,0))
+  
+  surv_object_pfs <- Surv(time=cli$pfs_month, event = cli$pfs_status)
+  ###cox 比例风险模型
+  cox_model_pfs <- coxph(surv_object_pfs ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_pfs <- summary(cox_model_pfs)$coefficients[1,2]
+  ci_lower_pfs <- summary(cox_model_pfs)$conf.int[1,3]
+  ci_upper_pfs <- summary(cox_model_pfs)$conf.int[1,4]
+  p_value_pfs <- summary(cox_model_pfs)$coefficients[1,5]
+  dat[j,2] <- p_value_pfs
+  
+  ###创建生存曲线对象
+  fit_pfs <- survfit(surv_object_pfs ~ cli[,i], data = cli)
+  ##计算中位无进展生存时间(mPFS)
+  median_pfs <- surv_median(fit_pfs)
+  
+  ###os
+  surv_object_os <- Surv(time=cli$os_month, event = cli$os_status)
+  ###cox 比例风险模型
+  cox_model_os <- coxph(surv_object_os ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_os <- summary(cox_model_os)$coefficients[1,2]
+  ci_lower_os <- summary(cox_model_os)$conf.int[1,3]
+  ci_upper_os <- summary(cox_model_os)$conf.int[1,4]
+  p_value_os <- summary(cox_model_os)$coefficients[1,5]
+  dat[j,3] <- p_value_os
+  
+  ###创建生存曲线对象
+  fit_os <- survfit(surv_object_os ~ cli[,i], data = cli)
+  ##计算中位无进展生存时间(mPFS)
+  median_os <- surv_median(fit_os)
+}
+
+write.table(dat, "./test_tak/gene_p_value.csv", quote = F, row.names = F, sep = ",")
+
+dat <- read.csv("./test_tak/gene_p_value.csv", header = T)
+dat <- na.omit(dat)
+s <- dat[dat$p_pfs<0.05,]
+b <- dat[dat$p_os<0.05,]
+gene_sig <- unique(c(s$gene, b$gene))
