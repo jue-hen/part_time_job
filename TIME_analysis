@@ -1,0 +1,502 @@
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(ggsci)
+merged_data<-read_excel("./2024_8_28任务/task_2024.8.28/raw_dat/副本1532_2024-07-30.xlsx","timedata")
+merged_data<-merged_data[,-which(apply(merged_data,2,function(x) all(is.na(x))))]#去掉都是na的列
+
+time_1<-merged_data[is.na(merged_data$cd8_dns_cnt_tumor),]
+time_2<-merged_data[!is.na(merged_data$cd8_dns_cnt_tumor),]
+time_1<-time_1[,-which(apply(time_1,2,function(x) all(is.na(x))))]
+time_2<-time_2[,-which(apply(time_2,2,function(x) all(is.na(x))))]
+time<-time_1|>left_join(time_2,by="报告编号")
+write.csv(time,"./2024_8_28任务/task_2024.8.28/result/TIME_result/time.csv",row.names = F, quote = F)
+
+##手工去掉 time 表里 NA 多的列
+time1<- read.csv("./2024_8_28任务/task_2024.8.28/result/TIME_result/time1.csv")
+dns_col<-colnames(time1)[grepl("dns_cnt",colnames(time1))]
+pct_col<-colnames(time1)[grepl("pct",colnames(time1))]
+
+mut_goup_dat <- read.table("./2024_8_28任务/task_2024.8.28/result/NGS_result/merge_dat_analysis.csv", header = T ,sep = ",")
+table(mut_goup_dat$TIME %in% time1$report_ID)
+mut_goup_dat_new <- mut_goup_dat[match(time1$report_ID, mut_goup_dat$TIME),]
+table(mut_goup_dat_new$TIME == time1$report_ID)
+
+analysis_dat <- cbind(mut_goup_dat_new, time1)
+write.table(analysis_dat, "./2024_8_28任务/task_2024.8.28/result/TIME_result/merge_NGS_group_time.csv", sep = ",", row.names = F, quote = F)
+colnames(analysis_dat)[25:220]
+analysis_dat[,25:220] <- apply(analysis_dat[,25:220],2,function(x)factor(x, levels = c(0,1), labels = c("WT","MUT")))
+
+###基因型分型
+tar_gen <- colnames(analysis_dat)[c(6,7,9,10,11,20,21,22,24,25:220)]
+tm <- c(dns_col,pct_col)
+analysis_dat <- analysis_dat %>%
+  mutate_at(vars(dns_col), as.numeric)%>%
+  mutate_at(vars(pct_col), as.numeric)
+wilcox_res <- as.data.frame(matrix(ncol = 3, nrow = length(tar_gen)*length(tm)))
+colnames(wilcox_res) <- c("group","time","p_val")
+library(Hmisc)
+num=1
+for (i in c(1:length(tar_gen))) {
+  for (j in c(1:length(tm))) {
+    #print(j)
+    tmp_dat <- analysis_dat[,c(tar_gen[i],tm[j])]
+    tmp_dat <- na.omit(tmp_dat)
+    #tmp_dat <- tmp_dat %>% filter(!is.na(tar_gen[i])) %>% filter(!is.na(tm[j]))
+    colnames(tmp_dat) <- c("group","value")
+    tmp_dat$group <- factor(tmp_dat$group) 
+    #tmp_dat$value <- ifelse(grepl("pct",tm[j]), tmp_dat$value, log2(tmp_dat$value + 1))
+    log_tm <- log2(c(tmp_dat$value+0.0005))
+    if(grepl("pct",tm[j])){
+      tmp_dat$value <- tmp_dat$value
+    }else{
+      tmp_dat$value <- log_tm
+    }
+    
+      
+    if (length(levels(tmp_dat$group)) == 1) { 
+      next
+    }
+    re<-wilcox.test(value ~ group, data = tmp_dat, exact=F)
+    
+    #num <- i*j
+    wilcox_res[num,1] <- tar_gen[i]
+    wilcox_res[num,2] <- tm[j]
+    wilcox_res[num,3] <-re$p.value
+   
+    num = num+1
+  }
+}
+wilcox_res <- wilcox_res %>% filter(!is.na(group))
+wilcox_res <- na.omit(wilcox_res)
+wilcox_res$fdr <- p.adjust(wilcox_res$p_val, method = "fdr")
+table(wilcox_res$p_val <0.05)
+table(wilcox_res$p_val <0.1)
+table(wilcox_res$fdr <0.05)
+table(wilcox_res$fdr <0.1)
+write.table(wilcox_res, "./2024_8_28任务/task_2024.8.28/result/TIME_result/wilcox_test_result.csv", row.names = F, quote = F ,sep = ",")
+
+wilcox_res_sig <- wilcox_res[wilcox_res$p_val<0.05,]
+write.table(wilcox_res_sig, "./2024_8_28任务/task_2024.8.28/result/TIME_result/wilcox_test_result_significant.csv", row.names = F, quote = F ,sep = ",")
+
+gg <- unique(wilcox_res_sig$group)
+# dir.create()
+for (i in gg) {
+  #i=gg[2]
+  tt <- wilcox_res_sig[wilcox_res_sig$group == i,]
+  dir.create(paste0("./2024_8_28任务/task_2024.8.28/result/TIME_result/wilcox_boxplot/",i))
+  for (j in c(1:nrow(tt))) {
+    #j=1
+    dd_dat <- analysis_dat[,c(i,tt[j,2])]
+    dd_dat <- na.omit(dd_dat)
+    #dd_dat <- na.omit(dd_dat)
+    colnames(dd_dat) <- c("group","value")
+    
+    column_counts <- as.data.frame(table(dd_dat$group))
+    dd_dat$group <- factor(dd_dat$group)
+    
+    name1<-column_counts[1,1]
+    name2<-column_counts[2,1]
+    n1<-column_counts[1,2]
+    n2<-column_counts[2,2]
+    
+    ylab <- ifelse(grepl("pct",tt[j,2]),"PCT","log2(density+0.0005)")
+    log_tm <- log2(c(dd_dat$value+0.0005))
+    # dd_dat$value <- ifelse(grepl("pct",tt[1,2]),dd_dat$value,log_tm)
+    if(grepl("pct",tt[j,2])){
+      dd_dat$value <- dd_dat$value
+    }else{
+      dd_dat$value <- log_tm
+    }
+    
+  
+    outdir <- paste(i,tt[j,2],sep = "_")
+    pdf(paste0("./2024_8_28任务/task_2024.8.28/result/TIME_result/wilcox_boxplot/",i,"/",outdir,".pdf"),width=6, height = 4)
+    p<-ggplot(dd_dat, aes(x=group,y=value, color=group))+######设置处理group
+      
+      geom_boxplot(alpha=1, outlier.shape = NA,size=0.9, width=0.7, fill="transparent") +# #设置箱线图大小宽度  
+      
+      geom_jitter( position=position_jitter(0.17), size=3,
+                    alpha=0.3,
+      #colour =mycol_fill
+      )+
+      theme_classic() +### 点的大小位置
+      
+      
+      labs(x=" ", y=ylab)+##坐标轴设置
+      
+      theme(title=element_text(size=14))+
+      
+      theme_bw()+ggtitle(paste(i,tt[j,2],sep = " && "))+
+      
+      theme(axis.text.x = element_text(size = 11, angle =45, hjust = 1)) +
+      
+      theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank(),legend.position = "none")+
+      
+      # scale_color_manual(values=c("#0073c2","#efc000","#759b59","#cd534c"))+#颜色设置
+      
+      theme(axis.text=element_text(colour='black',size=9))+#
+      
+      stat_compare_means( paired = F) +scale_color_nejm()+
+      
+      scale_x_discrete(limits = c(name1,name2),
+                       labels = c(paste0(name1,"(N=",n1,")"),
+                                  paste0(name2,"(N=",n2,")")))
+    
+    p
+    print(p)
+    dev.off()
+  }
+  
+}
+
+
+####
+# 是否有tls ------------------------------------------------------------------
+
+analysis_dat<-analysis_dat|>mutate(with_tls=ifelse(tls_dns_cnt>0,"yes","no"))
+analysis_dat$with_tls
+
+# 把time 分成高低两组 计算OR -------------------------------------------------------
+dt <- analysis_dat
+if(F){for (i in dns_col) {
+  i=dns_col[1]
+  dt[,i]=as.numeric(dt[,i])
+  
+  dt[complete.cases(dt[,i]),i] <- ifelse( dt[complete.cases(dt[,i]),i] > median( dt[complete.cases(dt[,i]),i]), "1_high", "0_low")##因为其中有na
+  
+  #dt[complete.cases(dt[,i]),i] =factor(dt[complete.cases(dt[,i]),i])
+  dt[,i] <- factor(dt[,i])
+}}
+
+
+###生存分析提取p值，OR值等
+###extract p 值
+tm <- c(dns_col,pct_col)
+
+dat <- as.data.frame(matrix(nrow = length(tm), ncol = 7))
+colnames(dat) <- c("time","pfs_p","pfs_95%CI","pfs_HR","os_p","os_95%CI","os_HR")
+cli <- read.table("./2024_8_28任务/task_2024.8.28/result/TIME_result/merge_NGS_group_time.csv", header = T, sep = ",")
+library("survival")
+library("survminer")
+options(digits = 3, scipen = 0)
+for (j in c(1:length(tm))){
+  # options(digits = 3)
+  #j=1
+  i=tm[j]
+  dat[j,1] <- i
+  
+  surv_object_pfs <- Surv(time=cli$pfs_month, event = cli$pfs_status)
+  ###cox 比例风险模型
+  cli[,i]=as.numeric(cli[,i])
+  cli[complete.cases(cli[,i]),i] <- ifelse( cli[complete.cases(cli[,i]),i] > median( cli[complete.cases(cli[,i]),i]), "1_high", "0_low")##因为其中有na
+  #dt[complete.cases(dt[,i]),i] =factor(dt[complete.cases(dt[,i]),i])
+  cli[,i] <- factor(cli[,i])
+  cox_model_pfs <- coxph(surv_object_pfs ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_pfs <- summary(cox_model_pfs)$coefficients[1,2]
+  ci_lower_pfs <- summary(cox_model_pfs)$conf.int[1,3]
+  ci_upper_pfs <- summary(cox_model_pfs)$conf.int[1,4]
+  p_value_pfs <- summary(cox_model_pfs)$coefficients[1,5]
+  dat[j,2] <- p_value_pfs
+  dat[j,3] <- paste0(round(ci_lower_pfs,2),"-",round(ci_upper_pfs,2))
+  dat[j,4] <-  round(hr_pfs,2)
+  
+  
+  # ###创建生存曲线对象
+  # fit_pfs <- survfit(surv_object_pfs ~ cli[,i], data = cli)
+  # ##计算中位无进展生存时间(mPFS)
+  # median_pfs <- surv_median(fit_pfs)
+  
+  
+  ###os
+  surv_object_os <- Surv(time=cli$os_month, event = cli$os_status)
+  ###cox 比例风险模型
+  cox_model_os <- coxph(surv_object_os ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_os <- summary(cox_model_os)$coefficients[1,2]
+  ci_lower_os <- summary(cox_model_os)$conf.int[1,3]
+  ci_upper_os <- summary(cox_model_os)$conf.int[1,4]
+  p_value_os <- summary(cox_model_os)$coefficients[1,5]
+  dat[j,5] <- p_value_os
+  dat[j,6] <- paste0(round(ci_lower_os,2),"-",round(ci_upper_os,2))
+  dat[j,7] <-  round(hr_os,2)
+  
+  # ###创建生存曲线对象
+  # fit_os <- survfit(surv_object_os ~ cli[,i], data = cli)
+  # ##计算中位无进展生存时间(mPFS)
+  # median_os <- surv_median(fit_os)
+}
+colnames(dat)
+dat$pfs_fdr <- p.adjust(dat$pfs_p, method = "fdr")
+dat$os_fdr <- p.adjust(dat$os_p, method = "fdr")
+colnames(dat)
+dat <- dat[,c(1,2,8,3,4,5,9,6,7)]
+write.table(dat, "./2024_8_28任务/task_2024.8.28/result/TIME_result/survivial_related_dat_pval.csv", quote = F, row.names = F, sep = ",")
+
+table(dat$pfs_fdr<0.1)
+table(dat$os_fdr < 0.1)
+
+dat_sig <- subset(dat, dat$pfs_p<0.1 | dat$os_p<0.1)
+dim(dat_sig)
+write.table(dat_sig, "./2024_8_28任务/task_2024.8.28/result/TIME_result/survivial_related_dat_significant.csv", quote = F, row.names = F, sep = ",")
+
+#####绘制生存曲线
+dat_sig <- read.table("./2024_8_28任务/task_2024.8.28/result/TIME_result/survivial_related_dat_significant.csv", header = T, sep = ",")
+target_gene <- dat_sig$time
+for (i in target_gene){
+  #i="cd56dim_dns_cnt_tumor"
+  cli[,i]=as.numeric(cli[,i])
+  cli[complete.cases(cli[,i]),i] <- ifelse( cli[complete.cases(cli[,i]),i] > median( cli[complete.cases(cli[,i]),i]), "1_high", "0_low")##因为其中有na
+  #dt[complete.cases(dt[,i]),i] =factor(dt[complete.cases(dt[,i]),i])
+  cli[,i] <- factor(cli[,i])
+  surv_object_pfs <- Surv(time=cli$pfs_month, event = cli$pfs_status)
+  ###cox 比例风险模型
+  cox_model_pfs <- coxph(surv_object_pfs ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_pfs <- summary(cox_model_pfs)$coefficients[1,2]
+  ci_lower_pfs <- summary(cox_model_pfs)$conf.int[1,3]
+  ci_upper_pfs <- summary(cox_model_pfs)$conf.int[1,4]
+  p_value_pfs <- summary(cox_model_pfs)$coefficients[1,5]
+  
+  ###创建生存曲线对象
+  fit_pfs <- survfit(surv_object_pfs ~ cli[,i], data = cli)
+  ##计算中位无进展生存时间(mPFS)
+  median_pfs <- surv_median(fit_pfs)
+  
+  num <- as.data.frame(table(cli[,i]))
+  p_pfs <- ggsurvplot(fit_pfs,
+                      data = cli,
+                      palette = "lancet",
+                      pval = FALSE,
+                      conf.int = FALSE,
+                      risk.table = TRUE,
+                      risk.table.y.text=TRUE,
+                      ggtheme = theme_bw(),
+                      risk.table.height=0.3,
+                      title=paste("pfs",i,sep="-"),
+                      xlab="Months",
+                      ylab="Progression-Free Survival",
+                      legend.labs = c(paste0("0_low(",num[1,2],")"),paste0("1_high(",num[2,2],")")),
+                      risk.table.title = "Number at risk",
+  )
+  
+  p_pfs$table <- p_pfs$table + theme(axis.title.x = element_blank(),
+                                     axis.title.y = element_blank(),
+                                     axis.ticks = element_blank(),
+                                     axis.text.x = element_blank(),
+                                     panel.grid.major = element_blank(),
+                                     panel.grid.minor = element_blank(),
+                                     panel.border = element_blank(),
+                                     axis.text = element_text(size = 10, face = 'bold'),
+                                     plot.margin = margin(0, 1, 1, 0.5, unit = "cm"))
+  
+  
+  p_pfs$plot <- p_pfs$plot + theme(panel.grid = element_blank(),
+                                   axis.line = element_line(colour = "black"),
+                                   panel.border = element_blank(),
+                                   legend.position = "top",
+                                   legend.title = element_blank(),
+                                   legend.text = element_text(size=15, face = "bold"),
+                                   axis.title = element_text(size = 15, face = 'bold'),
+                                   axis.text = element_text(size = 10, face = 'bold'),
+                                   plot.title = element_text(size = 15, face = "bold"),
+                                   plot.margin = margin(1, 1, 0, 1, unit = "cm"))+
+    annotate("text", label="mPFS", x=17, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="HR", x=21, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="95%CI", x=25, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="P", x=29, y=0.85,size=5, fontface="bold")+
+    annotate("text", label=paste0("MUT(",num[1,2],")"), x=14, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=paste0("WT(",num[2,2],")"), x=14, y=0.75,size=5, fontface="bold")+
+    annotate("text", label=round(median_pfs[1,2],1), x=17, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=round(median_pfs[2,2],1), x=17, y=0.75,size=5, fontface="bold")+
+    annotate("text", label=round(hr_pfs,2), x=21, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=paste0(round(ci_lower_pfs,2),"-",round(ci_upper_pfs,2)), x=25, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=round(p_value_pfs,3), x=29, y=0.80,size=5, fontface="bold")
+  
+  ###os
+  surv_object_os <- Surv(time=cli$os_month, event = cli$os_status)
+  ###cox 比例风险模型
+  cox_model_os <- coxph(surv_object_os ~ cli[,i], data = cli)
+  ##提取HR和置信区间
+  hr_os <- summary(cox_model_os)$coefficients[1,2]
+  ci_lower_os <- summary(cox_model_os)$conf.int[1,3]
+  ci_upper_os <- summary(cox_model_os)$conf.int[1,4]
+  p_value_os <- summary(cox_model_os)$coefficients[1,5]
+  
+  ###创建生存曲线对象
+  fit_os <- survfit(surv_object_os ~ cli[,i], data = cli)
+  ##计算中位无进展生存时间(mPFS)
+  median_os <- surv_median(fit_os)
+  
+  num <- as.data.frame(table(cli[,i]))
+  p_os <- ggsurvplot(fit_os,
+                     data = cli,
+                     palette = "lancet",
+                     pval = FALSE,
+                     conf.int = FALSE,
+                     risk.table = TRUE,
+                     risk.table.y.text=TRUE,
+                     ggtheme = theme_bw(),
+                     risk.table.height=0.3,
+                     title=paste("os",i,sep="-"),
+                     xlab="Months",
+                     ylab="Overall Survival",
+                     legend.labs = c(paste0("0_low(",num[1,2],")"),paste0("1_high(",num[2,2],")")),
+                     risk.table.title = "Number at risk",
+  )
+  
+  p_os$table <- p_os$table + theme(axis.title.x = element_blank(),
+                                   axis.title.y = element_blank(),
+                                   axis.ticks = element_blank(),
+                                   axis.text.x = element_blank(),
+                                   panel.grid.major = element_blank(),
+                                   panel.grid.minor = element_blank(),
+                                   panel.border = element_blank(),
+                                   axis.text = element_text(size = 10, face = 'bold'),
+                                   plot.margin = margin(0, 1, 1, 0.5, unit = "cm"))
+  
+  
+  p_os$plot <- p_os$plot + theme(panel.grid = element_blank(),
+                                 axis.line = element_line(colour = "black"),
+                                 panel.border = element_blank(),
+                                 legend.position = "top",
+                                 legend.title = element_blank(),
+                                 legend.text = element_text(size=15, face = "bold"),
+                                 axis.title = element_text(size = 15, face = 'bold'),
+                                 axis.text = element_text(size = 10, face = 'bold'),
+                                 plot.title = element_text(size = 15, face = "bold"),
+                                 plot.margin = margin(1, 1, 0, 1, unit = "cm"))+
+    annotate("text", label="mOS", x=27, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="HR", x=30, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="95%CI", x=35, y=0.85,size=5, fontface="bold")+
+    annotate("text", label="P", x=39, y=0.85,size=5, fontface="bold")+
+    annotate("text", label=paste0("MUT(",num[1,2],")"), x=23, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=paste0("WT(",num[2,2],")"), x=23, y=0.75,size=5, fontface="bold")+
+    annotate("text", label=round(median_os[1,2],1), x=27, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=round(median_os[2,2],1), x=27, y=0.75,size=5, fontface="bold")+
+    annotate("text", label=round(hr_os,2), x=30, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=paste0(round(ci_lower_os,2),"-",round(ci_upper_os,2)), x=35, y=0.80,size=5, fontface="bold")+
+    annotate("text", label=round(p_value_os,3), x=39, y=0.80,size=5, fontface="bold")
+  
+  splots <- list()
+  splots[[1]] <- p_pfs
+  splots[[2]] <- p_os
+  
+  
+  pdf(paste0("./2024_8_28任务/task_2024.8.28/result/TIME_result/survival_plot/",i,".pdf"), width = 20, height = 9, onefile = FALSE)
+  p <- arrange_ggsurvplots(splots, ncol = 2, nrow = 1)
+  print(p)
+  dev.off()
+}
+
+
+# heatmap -----------------------------------------------------------------
+
+library(pheatmap)
+
+time <- read.table("./2024_8_28任务/task_2024.8.28/result/TIME_result/time.csv", header = T ,sep = ",")
+gsva_matrix<-time1 %>% select(ID=report_ID,all_of(dns_col)) %>% tibble::column_to_rownames(var = 'ID')
+
+gsva_matrix<-gsva_matrix %>%
+  mutate(across(one_of(dns_col), as.numeric))
+
+#|>as.data.frame()|>select(-tls_dns_cnt,-cd4foxp3_plus_dns_cnt_stroma)
+
+
+#gsva_matrix<-gsva_matrix|>select(-tls_dns_cnt,-cd4foxp3_plus_dns_cnt_stroma)
+#gsva_matrix<-as.numeric(gsva_matrix)
+
+gsva_matrix1<- t(gsva_matrix)
+
+#gsva_matrix1<- t(scale(t(gsva_matrix)))
+# gsva_matrix1[gsva_matrix1< -2] <- -2
+# gsva_matrix1[gsva_matrix1>2] <- 2
+# normalization<-function(x){
+#   return((x-min(x))/(max(x)-min(x)))}
+# nor_gsva_matrix1 <- normalization(gsva_matrix1)
+
+nor_gsva_matrix1 <- log2(gsva_matrix1+0.01)
+pheno<-cli
+table(pheno$TIME == colnames(gsva_matrix1))
+
+annotation_col = data.frame(#patient=pheno$ID[match(colnames(gsva_matrix1),pheno$ID)],
+  年龄分组=pheno$年龄分组[match(colnames(gsva_matrix1),pheno$TIME)],
+  CPS分组=pheno$CPS.0..1.[match(colnames(gsva_matrix1),pheno$TIME)],
+  最佳疗效=pheno$最佳疗效[match(colnames(gsva_matrix1),pheno$TIME)],
+  最佳疗效_2=pheno$最佳疗效分组.2.PD.SD.vs.PR.CR.[match(colnames(gsva_matrix1),pheno$TIME)],
+  PFS分组_mPFS=pheno$PFS分组.按中位PFS时间为cutoff值分组.1.long.0.short[match(colnames(gsva_matrix1),pheno$TIME)],
+  PFS分组_10个月=pheno$PFS分组.按10个月为cutoff值分组.[match(colnames(gsva_matrix1),pheno$TIME)],
+  肝脏转移=pheno$肝脏转移[match(colnames(gsva_matrix1),pheno$TIME)],
+  淋巴结转移=pheno$淋巴结转移[match(colnames(gsva_matrix1),pheno$TIME)],
+  腹膜转移=pheno$腹膜转移[match(colnames(gsva_matrix1),pheno$TIME)],
+  转移位点=pheno$sites_group.1表示1.2表示大于1.[match(colnames(gsva_matrix1),pheno$TIME)]
+  )
+
+
+
+rownames(annotation_col)<-colnames(gsva_matrix1)
+#bk = unique(c(seq(0,1, length=100))) 
+p <- pheatmap(nor_gsva_matrix1,
+         show_colnames = F,
+         scale = "none",
+         cluster_rows = F,cluster_cols = T,annotation_col = annotation_col)#,
+#  breaks=bk
+# )#cellwidth=5,cellheight=5,fontsize=5 
+
+###显示中文
+library(sysfonts)
+library(showtextdb)
+library(showtext)
+showtext_auto()
+font_add("SimHei", regular = "SimHei.ttf")
+font_families()
+
+CairoPDF("./2024_8_28任务/task_2024.8.28/result/TIME_result/time.pdf", width = 8, height = 10)
+pheatmap(nor_gsva_matrix1,
+         show_colnames = F,
+         scale = "none",
+         cluster_rows = F,cluster_cols = T,annotation_col = annotation_col)#,
+
+dev.off()
+
+pheatmap(nor_gsva_matrix1)
+
+
+# table -------------------------------------------------------------------
+
+
+# dt%>%
+#   mutate(group=`最佳疗效分组-2(PD+SD.vs.PR)`)|>
+#   dplyr::select(group,all_of(dns_col),)%>%
+#   tbl_summary(by = (group)) %>%
+#   #add_p(test = list(all_of(dns) ~ "paired.t.test"#,
+#   add_p(test = list(all_of(dns_col) ~ "wilcox.test"  ), 
+# pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+
+dt%>%
+  mutate(group=`最佳疗效分组-2(PD+SD.vs.PR+CR)`)|>
+  mutate_at(vars(all_of(dns_col)), as.numeric)%>%
+  dplyr::select(group,all_of(dns_col),)%>%
+  tbl_summary(by = (group), statistic = list(all_continuous() ~ "{median} ({min}, {max})")) %>%
+  #add_p(test = list(all_of(dns) ~ "paired.t.test"#,
+  add_p(test = list(all_of(dns_col) ~ "wilcox.test"  ), 
+        pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+dt%>%
+  mutate(group=`最佳疗效分组-2(PD+SD.vs.PR)`)|>
+  mutate_at(vars(all_of(dns_col)), as.numeric)%>%
+  dplyr::select(group,all_of(dns_col),)%>%
+  tbl_summary(by = group, statistic = list(all_continuous() ~ "{median} ({min}, {max})"))
+
+
+cli.raw<-dt%>%
+  mutate(group=`最佳疗效分组-2(PD+SD.vs.PR+CR)`)|>
+  mutate_at(vars(all_of(dns_col)), as.numeric)%>%
+  dplyr::select(group,all_of(dns_col),)
+
+table1(~.|group,cli.raw)
