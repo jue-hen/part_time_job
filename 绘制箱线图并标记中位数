@@ -1,0 +1,60 @@
+for (i in tm) {
+  #i="cd56bright_dns_cnt_tumor"
+  tmp_dat <- analysis_dat[,c("group",i)]
+  colnames(tmp_dat) <- c("group","value")
+  
+  re<-wilcox.test(value ~ group, data = tmp_dat, exact=F)
+  p <- re$p.value
+  if (p>0.3){
+    next
+  }
+  column_counts <- as.data.frame(table(tmp_dat$group))
+  
+  name1<-column_counts[1,1]
+  name2<-column_counts[2,1]
+  n1<-column_counts[1,2]
+  n2<-column_counts[2,2]
+  
+  # 计算每组的中位数
+  median_data <- aggregate(value ~ group, tmp_dat, function(x)median(x, na.rm = T))
+  colnames(median_data) <- c("group", "median")
+  
+  outdir <- paste0(path,i)
+  CairoPDF(paste0(path,i,".pdf"),width=6, height = 6)
+  p<-ggplot(tmp_dat, aes(x=group,y=value, color=group))+######设置处理group
+    
+    geom_boxplot(alpha=1, outlier.shape = NA,size=0.9, width=0.7, fill="transparent") +# #设置箱线图大小宽度  
+    
+    geom_jitter( position=position_jitter(0.17), size=3,
+                 alpha=0.3,
+                 #colour =mycol_fill
+    )+
+    geom_text(data = median_data, aes(x = group, y = median+1, label = round(median, 2)), 
+              color = "black", size = 8) +
+    theme_classic() +### 点的大小位置
+    
+    
+    labs(x=" ", y=i)+##坐标轴设置
+    
+    theme(title=element_text(size=14))+
+    
+    theme_bw()+ggtitle(paste("TP53+KRAS共突变_vs_KRAS单突变",i,sep = "\n"))+
+    
+    theme(axis.text.x = element_text(size = 11, angle =45, hjust = 1)) +
+    
+    theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank(),legend.position = "none")+
+    
+    # scale_color_manual(values=c("#0073c2","#efc000","#759b59","#cd534c"))+#颜色设置
+    
+    theme(axis.text=element_text(colour='black',size=9))+#
+    
+    stat_compare_means( paired = F) +scale_color_nejm()+
+    
+    scale_x_discrete(limits = c(name1,name2),
+                     labels = c(paste0(name1,"(N=",n1,")"),
+                                paste0(name2,"(N=",n2,")")))
+  
+  #p
+  print(p)
+  dev.off()
+}
