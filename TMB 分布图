@@ -28,7 +28,7 @@ breaks <- seq(ceiling(max(data$TMB)),0, by=-1)
 cut_bins <- cut(data$TMB, breaks = breaks,include.lowest = TRUE)
 bin_freq <- as.data.frame(table(cut_bins))
 sum(bin_freq$Freq)
-#bin_freq <- bin_freq[which(bin_freq$Freq != 0),]
+bin_freq <- bin_freq[which(bin_freq$Freq != 0),]
 bin_freq$TMB <- as.numeric(gsub("\\((.*),.*", "\\1", bin_freq$cut_bins))
 bin_freq[1,3] <- 0
 bin_freq$x_start <- 0
