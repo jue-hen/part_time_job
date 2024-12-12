@@ -1,0 +1,142 @@
+setwd("./2024_12_11_task/")
+# 定义原始数据文件的路径，指向一个Excel文件
+file <- "./食管癌-PAN62-1613_2024-11-22.xlsx"
+
+# 定义需要处理的Excel文件中的工作表名称,注意修改变异影响和fusion列表里的功能基因表头
+sheets <- c("snv_indel", "cnv", "Fusion_2")
+
+# 载入一个自定义的R脚本文件，该文件包含合并工作表的函数
+source("./fun_merge_sheets.R")
+
+# 使用自定义函数merge_sheets，传入文件路径和工作表名称列表，合并这些工作表的数据
+merged_data <- merge_sheets(file, sheets)
+
+# 获取合并后数据中"变异影响"列的所有唯一值
+unique_impact_values <- unique(merged_data$变异影响)
+
+# 筛选出"变异影响"列中存在缺失值的行，但不修改原始数据
+na_variant_impact_rows <- merged_data[is.na(merged_data$变异影响),]
+
+# 将"变异等级"列中缺失值的行的"变异等级"列赋值为"MUT"
+merged_data[is.na(merged_data$变异等级), "变异等级"] <- "MUT"
+
+# 从合并后的数据中移除基因列为"UGT1A1"的所有行
+merged_data <- merged_data[merged_data$基因 != "UGT1A1",]
+
+# 从合并后的数据中移除基因列为"DPYD"的所有行
+merged_data <- merged_data[merged_data$基因 != "DPYD",]
+
+# 将清洗后的数据保存为CSV文件，不包含行名，保存路径为指定的文件夹
+write.csv(merged_data, "./mut_raw.csv", row.names = F)
+pheno_group<-read.csv("./HRD分组.csv")
+
+out.dir="cliresult_20241211/"
+if (!dir.exists(out.dir)) {
+  dir.create(out.dir, recursive = TRUE)
+}
+
+source("./fun_calculate_fisher.R")
+library(dplyr)
+#install.packages("eoffice")
+#install.packages("magick")
+#install.packages("magick", repos = "https://cran.rstudio.com")
+library(magick)
+library(eoffice)
+
+#install.packages("tidyr")
+library(tidyr)
+#install.packages("ggstatsplot")
+library(ggstatsplot)
+#install.packages("ggpubr")
+library(ggpubr)
+#install.packages("ggplot2")
+library(ggplot2)
+#install.packages("hrbrthemes")
+library(hrbrthemes)
+#install.packages("plotly")
+library(plotly)
+mut.raw <-read.csv("./mut_raw.csv")
+mut.raw.df<-mut.raw
+#mut.raw.df<-head(df,n=344)
+
+pheno_group.df<-pheno_group
+#names(pheno_group)
+mycol_fill=c('#0072b5','#bc3c29')
+#数字是pheno_group要分析的列数
+for(i in 6:7){
+  
+  ver=names(pheno_group)[i]
+  
+  result_p_value<-calculate_fisher(mut.raw.df,pheno_group.df,ver_group=ver,
+                                   ver_id="报告编号",ver_gene="基因",
+                                   ver_var="变异等级",ver_type="变异影响")
+  
+  file_name=paste0(ver,"_calculate_fisher")
+  
+  write.csv(result_p_value,paste0(out.dir,file_name,".csv"),row.names = T)
+  
+  dt<-result_p_value|>
+    tibble::rownames_to_column("vers")|>filter(vers!="NA")|>filter(p_values<0.05)
+  
+  vers_gene=dt$vers
+  
+  for(j in vers_gene){
+
+    
+    p_value<-dt[dt$vers==j,"p_values"]
+    
+    #data(mtcars)
+    
+    n1=dt[dt$vers==j,2]
+    n2=dt[dt$vers==j,3]
+    n3=dt[dt$vers==j,4]
+    n4=dt[dt$vers==j,5]
+    name1=unique(pheno_group[,i])[1]
+    name2=unique(pheno_group[,i])[2]
+    
+    status<-c(rep(name1,n1),rep(name1,n2),rep(name2,n3),rep(name2,n4))
+    group<-c(rep("mut",n1),rep("wt",n2),rep("mut",n3),rep("wt",n4))
+    data<-data.frame(status,group)
+    plot<-ggbarstats(
+      data         = data,
+      x            = status,
+      y            = group,
+      title        = j, ## title for the plot
+      paired = F,
+      results.subtitle=F,
+      
+      legend.title = ver, 
+      #xlab             = "am",
+      #ggtheme          = hrbrthemes::theme_ipsum_pub(),
+      ggplot.component = list(ggplot2::scale_x_discrete(guide = ggplot2::guide_axis(n.dodge = 2))),
+      
+    )+
+      scale_fill_manual(values=mycol_fill)+xlab(" ")
+    plot
+    plt<-plot+geom_signif(annotation=round(p_value,3),
+                          tip_length = 0.0005,
+                          y_position =1.05 ,vjust=0.02,
+                          xmin="mut", xmax="wt"
+                          
+    )+scale_x_discrete(limits = c("mut","wt"),
+                       labels = c("mut","wt"))
+    plt
+    plt<-plt+theme(panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank(),
+                   panel.border = element_blank(),
+                   axis.line = element_blank(),
+                   axis.text.x = element_blank(),
+                   axis.text.y = element_blank(),
+                   axis.title.x = element_blank(),
+                   axis.title.y = element_blank(),
+                   axis.ticks.y = element_blank())
+    
+    
+    pdf(paste0(out.dir,file_name,j,".pdf"))
+    plt
+    dev.off()
+    # ggsave(paste0(out.dir,file_name,"_2.pdf"),plt)
+    #topptx(plt, filename =paste0(out.dir,file_name,".pptx"),  width=6, height = 4, append = T)
+  }    
+}
+
