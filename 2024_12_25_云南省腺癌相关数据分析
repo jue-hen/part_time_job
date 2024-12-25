@@ -1,0 +1,450 @@
+d1 <- read.table("./new/体细胞变异图谱绘制数据.csv", header = T, sep = ",")
+d2 <- read.table("./new/生殖细胞变异图谱绘制数据.csv", header = T, sep = ",")
+length(unique(d1$Tumor_Sample_Barcode))
+length(unique(d2$Tumor_Sample_Barcode))
+
+###绘制突变图谱
+# 获取Variant_Classification列的唯一值
+vc <- unique(d1$Variant_Classification)
+
+# 定义另一组颜色用于后续的可视化
+cols<-c("#99c7df","#0065a9","#acdd81","#1e9616","#fba2a1","#fdb85e","yellow")
+# 这里列出了另一组颜色的十六进制值
+
+# 为Variant_Classification列的每个唯一值分配颜色
+names(cols)<-vc
+# 读取MAF文件，同时传入临床数据，并去除重复的变异
+library(maftools)
+laml <- read.maf(maf = d1, removeDuplicatedVariants = T, vc_nonSyn = vc)
+# 设置PDF文件的输出路径和尺寸
+pdf("./new/plot/体细胞变异图谱.pdf", width = 8.27, height = 10.69)
+
+# 使用oncoplot函数绘制肿瘤基因突变图
+oncoplot(maf = laml, 
+         colors = cols, 
+         #genes = c("KRAS","NRAS"),
+         top = 20, 
+         # minMut = 0.1,
+         #draw_titv = TRUE,
+         removeNonMutated = F,
+         showTumorSampleBarcodes = F,
+         SampleNamefontSize = 1,
+         showTitle = T,
+         #clinicalFeatures  = colnames(laml@clinical.data)[2:ncol(laml@clinical.data)],
+         #annotationColor = annotation_Color,
+         #sortByAnnotation = T,
+         annotationOrder = names(annotation_Color[[1]]), 
+         anno_height = 3,
+         #pathways = "auto",
+         fontSize = 0.5,
+         annotationFontSize = 0.6,
+         legendFontSize = 0.6) 
+
+# 关闭PDF文件的输出
+dev.off()
+
+###生殖细胞
+vc <- unique(d2$Variant_Classification)
+# 定义另一组颜色用于后续的可视化
+cols<-c("#99c7df","#0065a9","#acdd81","#1e9616","#fba2a1","#fdb85e")
+# 这里列出了另一组颜色的十六进制值
+
+# 为Variant_Classification列的每个唯一值分配颜色
+names(cols)<-vc
+
+library(maftools)
+laml <- read.maf(maf = d2, removeDuplicatedVariants = T, vc_nonSyn = vc)
+# 设置PDF文件的输出路径和尺寸
+pdf("./new/plot/生殖细胞变异图谱.pdf", width = 8.27, height = 10.69)
+
+# 使用oncoplot函数绘制肿瘤基因突变图
+oncoplot(maf = laml, 
+         colors = cols, 
+         #genes = c("KRAS","NRAS"),
+         top = 20, 
+         # minMut = 0.1,
+         #draw_titv = TRUE,
+         removeNonMutated = F,
+         showTumorSampleBarcodes = F,
+         SampleNamefontSize = 1,
+         showTitle = T,
+         #clinicalFeatures  = colnames(laml@clinical.data)[2:ncol(laml@clinical.data)],
+         #annotationColor = annotation_Color,
+         #sortByAnnotation = T,
+         annotationOrder = names(annotation_Color[[1]]), 
+         anno_height = 3,
+         #pathways = "auto",
+         fontSize = 0.5,
+         annotationFontSize = 0.6,
+         legendFontSize = 0.6) 
+
+# 关闭PDF文件的输出
+dev.off()
+
+###绘制柱状图
+dat_test <- d1
+cou <- data.frame(matrix(nrow = length(unique(dat_test$Hugo_Symbol)), ncol = 2,0))
+colnames(cou) <- c("Gene","Peo")
+all_gene <- unique(dat_test$Hugo_Symbol)
+for (i in c(1:length(all_gene))){
+  gg <- all_gene[i]
+  tt <- d1[d1$Hugo_Symbol == gg,]
+  cou[i,1] <- gg
+  cou[i,2] <- length(unique(tt$Tumor_Sample_Barcode))
+}
+cou <- cou[order(cou$Peo, decreasing =T),]
+top_genes <- cou$Gene[1:40]
+# 统计 Gene 列的频率
+# top_genes <- dat_test %>%
+#   count(Hugo_Symbol, sort = TRUE) %>%           # 按 Gene 分组并计数，按降序排列
+#   slice_head(n = 40) %>%                # 取出现次数最多的前 40 个
+#   pull(Hugo_Symbol)                            # 提取 Gene 名称
+
+
+# 筛选数据框中属于前 40 个基因的行
+filtered_df <- dat_test %>%
+  filter(Hugo_Symbol %in% top_genes)
+filtered_df$Hugo_Symbol <- factor(filtered_df$Hugo_Symbol, levels = top_genes)
+filtered_df <- filtered_df[order(filtered_df$Hugo_Symbol),]
+write.table(filtered_df, "./new/体细胞变异_前40个基因.csv", row.names = F, quote = F, sep = ",")
+peo <- length(unique(d1$Tumor_Sample_Barcode))
+
+#计算频率
+table(filtered_df$Hugo_Symbol)
+for (i in top_genes){
+  #i="KRAS"
+  tt <- filtered_df[filtered_df$Hugo_Symbol == i,]
+  # table(tt$mutation_type)
+  length(unique(tt$Tumor_Sample_Barcode))
+  type <- unique(tt$mutation_type)
+  count_fre <- c()
+  for (j in type) {
+    #j="Nonsynonymous"
+    cc <- length(unique(tt[tt$mutation_type == j,]$Tumor_Sample_Barcode)) / peo
+    count_fre <- c(count_fre, cc)
+  }
+  dd <- data.frame(Gene=c(rep(i,length(type))),
+                   type=type,
+                   Frq=count_fre)
+  write.table(dd,paste0("./new/gene_freq_txb/",i,".csv"), row.names = F, quote = F, sep = ",")
+}
+###合并文件
+dat_merge <- read.csv("./new/gene_freq_txb/KRAS.csv", header = T)
+for (i in top_genes[2:length(top_genes)]) {
+  tmp <- read.csv(paste0("./new/gene_freq_txb/",i,".csv"), header = T)
+  dat_merge <- rbind(dat_merge, tmp)
+}
+
+###画图
+library(RColorBrewer)
+library(ggplot2)
+colnames(dat_merge)
+dat_merge$Gene <- factor(dat_merge$Gene, levels = top_genes)
+unique(dat_merge$type)
+mycol <- c("#BD6263","#8EA325","#A9D179","#84CAC0","#F5AE6B","#BCB8D3","#4387B5")
+
+pdf("./new/plot/胰腺癌体细胞变异统计.pdf", width = 15, height = 8)
+ggplot(dat_merge, aes(x = Gene, y = Frq, fill = type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = mycol) +
+  labs(x = NULL, y = "Variant Frequency", fill = NULL) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,0.8), breaks = seq(0,0.8,0.1))+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5,size = 22, face = "bold"),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18, face = "bold"),
+        legend.position = c(.8,.8),
+        legend.key.height = unit(0.8, "cm"),
+        plot.margin = margin(0.5, 2.5, 0.5, 2.5, unit = "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA),
+        axis.title = element_text(size = 24, face = 'bold'),
+        axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(size = 18,face = 'bold'))
+dev.off()
+
+
+####生殖细胞绘制
+###绘制柱状图
+dat_test <- d2
+cou <- data.frame(matrix(nrow = length(unique(dat_test$Hugo_Symbol)), ncol = 2,0))
+colnames(cou) <- c("Gene","Peo")
+all_gene <- unique(dat_test$Hugo_Symbol)
+for (i in c(1:length(all_gene))){
+  gg <- all_gene[i]
+  tt <- d2[d2$Hugo_Symbol == gg,]
+  cou[i,1] <- gg
+  cou[i,2] <- length(unique(tt$Tumor_Sample_Barcode))
+}
+cou <- cou[order(cou$Peo, decreasing =T),]
+top_genes <- cou$Gene[1:40]
+# 统计 Gene 列的频率
+# top_genes <- dat_test %>%
+#   count(Hugo_Symbol, sort = TRUE) %>%           # 按 Gene 分组并计数，按降序排列
+#   slice_head(n = 40) %>%                # 取出现次数最多的前 40 个
+#   pull(Hugo_Symbol)                            # 提取 Gene 名称
+
+# 筛选数据框中属于前 40 个基因的行
+filtered_df <- dat_test %>%
+  filter(Hugo_Symbol %in% top_genes)
+filtered_df$Hugo_Symbol <- factor(filtered_df$Hugo_Symbol, levels = top_genes)
+filtered_df <- filtered_df[order(filtered_df$Hugo_Symbol),]
+write.table(filtered_df, "./new/生殖细胞变异_前40个基因.csv", row.names = F, quote = F, sep = ",")
+peo <- length(unique(d2$Tumor_Sample_Barcode))
+
+#计算频率
+table(filtered_df$Hugo_Symbol)
+for (i in top_genes){
+  #i="KRAS"
+  tt <- filtered_df[filtered_df$Hugo_Symbol == i,]
+  # table(tt$mutation_type)
+  length(unique(tt$Tumor_Sample_Barcode))
+  type <- unique(tt$mutation_type)
+  count_fre <- c()
+  for (j in type) {
+    #j="Nonsynonymous"
+    cc <- length(unique(tt[tt$mutation_type == j,]$Tumor_Sample_Barcode)) / peo
+    count_fre <- c(count_fre, cc)
+  }
+  dd <- data.frame(Gene=c(rep(i,length(type))),
+                   type=type,
+                   Frq=count_fre)
+  write.table(dd,paste0("./new/gene_freq_szxb/",i,".csv"), row.names = F, quote = F, sep = ",")
+}
+###合并文件
+dat_merge <- read.csv("./new/gene_freq_szxb/CYP2C19.csv", header = T)
+for (i in top_genes[2:length(top_genes)]) {
+  tmp <- read.csv(paste0("./new/gene_freq_szxb/",i,".csv"), header = T)
+  dat_merge <- rbind(dat_merge, tmp)
+}
+
+###画图
+library(RColorBrewer)
+library(ggplot2)
+colnames(dat_merge)
+dat_merge$Gene <- factor(dat_merge$Gene, levels = top_genes)
+unique(dat_merge$type)
+mycol <- c("#BD6263","#8EA325","#A9D179","#84CAC0","#F5AE6B","#BCB8D3")
+
+pdf("./new/plot/胰腺癌生殖细胞变异统计.pdf", width = 15, height = 8)
+ggplot(dat_merge, aes(x = Gene, y = Frq, fill = type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = mycol) +
+  labs(x = NULL, y = "Variant Frequency", fill = NULL) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,0.8), breaks = seq(0,0.8,0.1))+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5,size = 22, face = "bold"),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18, face = "bold"),
+        legend.position = c(.8,.8),
+        legend.key.height = unit(0.8, "cm"),
+        plot.margin = margin(0.5, 2.5, 0.5, 2.5, unit = "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA),
+        axis.title = element_text(size = 24, face = 'bold'),
+        axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(size = 18,face = 'bold'))
+dev.off()
+
+####变异等级绘制
+##体细胞
+txb <- read.table("./new/体细胞变异_前40个基因.csv", header = T, sep = ",")
+txb$Hugo_Symbol <- factor(txb$Hugo_Symbol, levels = unique(txb$Hugo_Symbol))
+filtered_df <- txb
+peo <- 81
+#计算频率
+table(filtered_df$Hugo_Symbol)
+top_genes <- unique(filtered_df$Hugo_Symbol)
+for (i in top_genes){
+  #i="KRAS"
+  tt <- filtered_df[filtered_df$Hugo_Symbol == i,]
+  # table(tt$mutation_type)
+  length(unique(tt$Tumor_Sample_Barcode))
+  type <- unique(tt$Variant_order)
+  count_fre <- c()
+  for (j in type) {
+    #j="Nonsynonymous"
+    cc <- length(unique(tt[tt$Variant_order == j,]$Tumor_Sample_Barcode)) / peo
+    count_fre <- c(count_fre, cc)
+  }
+  dd <- data.frame(Gene=c(rep(i,length(type))),
+                   type=type,
+                   Frq=count_fre)
+  write.table(dd,paste0("./new/tmp/",i,".csv"), row.names = F, quote = F, sep = ",")
+}
+###合并文件
+dat_merge <- read.csv("./new/tmp/KRAS.csv", header = T)
+for (i in top_genes[2:length(top_genes)]) {
+  tmp <- read.csv(paste0("./new/tmp/",i,".csv"), header = T)
+  dat_merge <- rbind(dat_merge, tmp)
+}
+
+###画图
+library(RColorBrewer)
+library(ggplot2)
+colnames(dat_merge)
+dat_merge$Gene <- factor(dat_merge$Gene, levels = top_genes)
+unique(dat_merge$type)
+mycol <- c("#BD6263","#8EA325","#A9D179","#84CAC0","#F5AE6B")
+
+pdf("./new/plot/胰腺癌体细胞变异等级统计.pdf", width = 15, height = 8)
+ggplot(dat_merge, aes(x = Gene, y = Frq, fill = type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = mycol) +
+  labs(x = NULL, y = "Variant Frequency", fill = NULL) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,0.8), breaks = seq(0,0.8,0.1))+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5,size = 22, face = "bold"),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18, face = "bold"),
+        legend.position = c(.8,.8),
+        legend.key.height = unit(0.8, "cm"),
+        plot.margin = margin(0.5, 2.5, 0.5, 2.5, unit = "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA),
+        axis.title = element_text(size = 24, face = 'bold'),
+        axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(size = 18,face = 'bold'))
+dev.off()
+
+###生殖细胞
+txb <- read.table("./new/生殖细胞变异_前40个基因.csv", header = T, sep = ",")
+txb$Hugo_Symbol <- factor(txb$Hugo_Symbol, levels = unique(txb$Hugo_Symbol))
+filtered_df <- txb
+peo <- 83
+filtered_df <- filtered_df %>% filter(!is.na(Variant_order))
+#计算频率
+table(filtered_df$Hugo_Symbol)
+top_genes <- unique(filtered_df$Hugo_Symbol)
+for (i in top_genes){
+  #i="KRAS"
+  tt <- filtered_df[filtered_df$Hugo_Symbol == i,]
+  # table(tt$mutation_type)
+  length(unique(tt$Tumor_Sample_Barcode))
+  type <- unique(tt$Variant_order)
+  count_fre <- c()
+  for (j in type) {
+    #j="Nonsynonymous"
+    cc <- length(unique(tt[tt$Variant_order == j,]$Tumor_Sample_Barcode)) / peo
+    count_fre <- c(count_fre, cc)
+  }
+  dd <- data.frame(Gene=c(rep(i,length(type))),
+                   type=type,
+                   Frq=count_fre)
+  write.table(dd,paste0("./new/tmp/",i,".csv"), row.names = F, quote = F, sep = ",")
+}
+###合并文件
+dat_merge <- read.csv("./new/tmp/CYP2C19.csv", header = T)
+for (i in top_genes[2:length(top_genes)]) {
+  tmp <- read.csv(paste0("./new/tmp/",i,".csv"), header = T)
+  dat_merge <- rbind(dat_merge, tmp)
+}
+
+###画图
+library(RColorBrewer)
+library(ggplot2)
+colnames(dat_merge)
+dat_merge$Gene <- factor(dat_merge$Gene, levels = top_genes)
+unique(dat_merge$type)
+mycol <- c("#BD6263","#8EA325","#A9D179","#84CAC0","#F5AE6B")
+
+pdf("./new/plot/胰腺癌生殖细胞变异等级统计.pdf", width = 15, height = 8)
+ggplot(dat_merge, aes(x = Gene, y = Frq, fill = type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = mycol) +
+  labs(x = NULL, y = "Variant Frequency", fill = NULL) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,0.8), breaks = seq(0,0.8,0.1))+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5,size = 22, face = "bold"),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18, face = "bold"),
+        legend.position = c(.8,.8),
+        legend.key.height = unit(0.8, "cm"),
+        plot.margin = margin(0.5, 2.5, 0.5, 2.5, unit = "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA),
+        axis.title = element_text(size = 24, face = 'bold'),
+        axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(size = 18,face = 'bold'))
+dev.off()
+
+###环图
+d1 <- read.table("./new/体细胞变异图谱绘制数据.csv", header = T, sep = ",")
+d2 <- read.table("./new/生殖细胞变异图谱绘制数据.csv", header = T, sep = ",")
+d2 <- d2 %>% filter(!is.na(Variant_order))
+length(unique(d1$Tumor_Sample_Barcode))
+length(unique(d2$Tumor_Sample_Barcode))
+
+###体细胞
+tt <- as.data.frame(table(d1$Variant_order))
+tt$per <- (tt$Freq / nrow(d1)) * 100
+sum(tt$per)
+tt$per <- round(tt$per, 2)
+colnames(tt)
+# 总数
+total <- nrow(d1)
+# 添加标签
+tt <- tt %>%
+  mutate(
+    Label = paste0(Var1, " (", per, "%)"),
+    Fraction = per / 100,
+  )
+# 绘制环形图
+library(sysfonts)
+library(showtextdb)
+library(showtext)
+showtext_auto()
+library(Cairo)
+CairoPDF("./new/plot/胰腺癌体细胞变异等级统计环图.pdf", height = 5, width = 5)
+ggplot(tt, aes(x = 2, y = Fraction, fill = Label)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.5, 2.5) +  # 为了形成环形图，调整 x 坐标范围
+  theme_void()  +  # 去除背景和轴
+  annotate("text", x = 0.5, y = 0, label = paste0("Total: ", total), size = 6) +
+  # scale_fill_manual(
+  #   values = c("skyblue", "cyan", "lightgreen","#BD6263")
+  # ) +
+  theme(legend.position = "right",
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, unit = "cm"),)+
+  labs(fill="")
+dev.off()
+
+###生殖细胞
+tt <- as.data.frame(table(d2$Variant_order))
+tt$per <- (tt$Freq / nrow(d2)) * 100
+sum(tt$per)
+tt$per <- round(tt$per, 2)
+colnames(tt)
+# 总数
+total <- nrow(d2)
+# 添加标签
+tt <- tt %>%
+  mutate(
+    Label = paste0(Var1, " (", per, "%)"),
+    Fraction = per / 100,
+  )
+# 绘制环形图
+library(sysfonts)
+library(showtextdb)
+library(showtext)
+showtext_auto()
+library(Cairo)
+CairoPDF("./new/plot/胰腺癌生殖细胞变异等级统计环图.pdf", height = 5, width = 5)
+ggplot(tt, aes(x = 2, y = Fraction, fill = Label)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.5, 2.5) +  # 为了形成环形图，调整 x 坐标范围
+  theme_void()  +  # 去除背景和轴
+  annotate("text", x = 0.5, y = 0, label = paste0("Total: ", total), size = 6) +
+  # scale_fill_manual(
+  #   values = c("skyblue", "cyan", "lightgreen","#BD6263")
+  # ) +
+  theme(legend.position = "right",
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, unit = "cm"),)+
+  labs(fill="")
+dev.off()
